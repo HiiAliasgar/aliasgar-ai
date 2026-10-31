@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Aliasgar AI</title>
+<style>
+body{margin:0;background:#0b1020;color:#edf2ff;font:15px system-ui}main{max-width:900px;margin:40px auto;padding:20px}.card{background:#131b2e;border:1px solid #2b3956;border-radius:14px;padding:20px;margin:16px 0}input,textarea{box-sizing:border-box;width:100%;padding:12px;background:#0c1425;color:white;border:1px solid #405070;border-radius:8px;margin:6px 0}textarea{min-height:90px}button{padding:11px 16px;border:0;border-radius:8px;background:#77a7ff;color:#071226;font-weight:bold;cursor:pointer}.muted{color:#9aa8c4}.bubble{padding:12px;background:#1b2941;border-radius:9px;margin:8px 0;white-space:pre-wrap}.user{background:#233b63;text-align:right}pre{white-space:pre-wrap;overflow-wrap:anywhere}
+</style></head><body><main><h1>Aliasgar AI</h1><p class="muted">Personal AI agent · approval-gated GitHub actions · LinkedIn drafts</p>
+<section class="card" id="login"><h3>Connect dashboard</h3><input id="token" type="password" placeholder="APP_API_TOKEN"><button onclick="connect()">Connect</button></section>
+<div id="app" hidden><section class="card"><h3>Chat with Aliasgar AI</h3><div id="chat"></div><textarea id="prompt" placeholder="Ask me to inspect a GitHub repository or draft a LinkedIn post"></textarea><button onclick="send()">Send</button></section>
+<section class="card"><h3>Status</h3><div id="status" class="muted"></div></section>
+<section class="card"><h3>Pending approvals</h3><div id="approvals"></div></section>
+<section class="card"><h3>LinkedIn drafts</h3><div id="drafts"></div></section>
+<section class="card"><h3>Recent tasks</h3><div id="tasks"></div></section></div></main>
+<script>
+let token="";
+async function api(path,opts={}){const r=await fetch(path,{...opts,headers:{Authorization:"Bearer "+token,"Content-Type":"application/json",...(opts.headers||{})}});const d=await r.json();if(!r.ok)throw Error(d.detail||"Request failed");return d}
+async function connect(){token=document.getElementById("token").value.trim();try{const m=await api("/api/me");document.getElementById("login").hidden=true;document.getElementById("app").hidden=false;document.getElementById("status").textContent="Connected · "+m.ai_provider+" · "+m.model;refresh()}catch(e){alert(e.message)}}
+function addBubble(s,cls){const d=document.createElement("div");d.className="bubble "+cls;d.textContent=s;document.getElementById("chat").append(d)}
+async function send(){const el=document.getElementById("prompt"),message=el.value.trim();if(!message)return;el.value="";addBubble(message,"user");try{const r=await api("/api/chat",{method:"POST",body:JSON.stringify({message,channel:"web"})});addBubble(r.reply,"");refresh()}catch(e){addBubble("Error: "+e.message,"")}}
+async function refresh(){const [a,d,t]=await Promise.all([api("/api/approvals"),api("/api/drafts"),api("/api/tasks")]);document.getElementById("approvals").innerHTML=a.filter(x=>x.status==="pending").map(x=>'<div class="bubble"><b>'+x.summary+'</b><pre>'+JSON.stringify(x.payload,null,2)+'</pre><button onclick="approve('+x.id+')">Approve & create draft PR</button> <button onclick="reject('+x.id+')">Reject</button></div>').join("")||"No pending approvals";document.getElementById("drafts").innerHTML=d.map(x=>'<div class="bubble">'+x.content+'</div>').join("")||"No drafts";document.getElementById("tasks").innerHTML=t.slice(0,15).map(x=>'<div class="bubble"><b>'+x.status+'</b> '+x.prompt+'<pre>'+x.result+'</pre></div>').join("")||"No tasks"}
+async function approve(id){if(!confirm("Execute this approved GitHub change?"))return;await api("/api/approvals/"+id+"/approve",{method:"POST"});refresh()}
+async function reject(id){await api("/api/approvals/"+id+"/reject",{method:"POST"});refresh()}
+</script></body></html>
