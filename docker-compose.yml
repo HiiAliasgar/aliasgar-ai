@@ -1,0 +1,11 @@
+services:
+  aliasgar-ai:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    volumes:
+      - aliasgar_data:/srv/aliasgar-ai/data
+    restart: unless-stopped
+volumes:
+  aliasgar_data:
