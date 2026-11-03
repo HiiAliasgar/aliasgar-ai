@@ -13,6 +13,31 @@ from .whatsapp import verify_signature, extract_messages, send_whatsapp_text
 
 logger = logging.getLogger("aliasgar_ai")
 
+
+def provider_error_detail(exc: Exception) -> str:
+    status = getattr(exc, "status_code", None)
+    request_id = getattr(exc, "request_id", None)
+    if status == 401:
+        message = "The AI provider rejected the configured credential (HTTP 401). Check the selected environment variable and replace the key if it is invalid or revoked."
+    elif status == 403:
+        message = "The AI provider denied this request (HTTP 403). Check API access, project restrictions and model permissions for the selected key."
+    elif status == 404:
+        message = "The configured model or API endpoint was not found (HTTP 404). Check OPENAI_MODEL and the provider endpoint."
+    elif status == 429:
+        message = "The AI provider rate limit or quota was reached (HTTP 429). Check usage limits, billing and retry timing."
+    elif status is not None and status >= 500:
+        message = f"The AI provider returned a server error (HTTP {status}). Retry after the provider recovers."
+    elif "timeout" in type(exc).__name__.lower():
+        message = "The AI provider request timed out. Check service availability and retry."
+    elif "connection" in type(exc).__name__.lower():
+        message = "The server could not connect to the AI provider. Check outbound network access and provider availability."
+    else:
+        message = f"The AI provider request failed ({type(exc).__name__}). Check the provider key, model access and server logs."
+    if request_id:
+        message += f" Provider request ID: {request_id}."
+    return message
+
+
 app = FastAPI(title=settings.app_name, version="0.2.0")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -36,6 +61,7 @@ def me():
         "model": settings.model_name, "configured_model": settings.openai_model,
         "model_migrated": settings.model_migrated,
         "ai_provider": settings.normalized_ai_provider, "ai_key_env": settings.api_key_env_name,
+        "active_ai_key_env": settings.active_api_key_source,
         "github_configured": bool(settings.github_token),
         "whatsapp_configured": bool(settings.whatsapp_access_token and settings.whatsapp_phone_number_id),
         "openai_configured": bool(settings.openai_api_key),
@@ -59,13 +85,13 @@ async def chat(body: ChatRequest, db: Session = Depends(get_db)):
         return {"task_id":task.id,"status":"completed","reply":answer}
     except Exception as exc:
         logger.exception("AI provider request failed")
+        detail = provider_error_detail(exc)
         db.add(Task(channel=body.channel, user_ref=key, prompt=body.message, status="failed",
-                    result=(type(exc).__name__ + ": " + str(exc))[:700]))
+                    result=(type(exc).__name__ + ": " + detail)[:700]))
         db.commit()
         if isinstance(exc, RuntimeError) and "not configured" in str(exc).lower():
-            raise HTTPException(status_code=503, detail=str(exc))
-        raise HTTPException(status_code=502,
-            detail="AI provider request failed. Check the server-side API key, model access and quota in the hosting environment.")
+            raise HTTPException(status_code=503, detail=detail)
+        raise HTTPException(status_code=502, detail=detail)
 
 @app.get("/api/tasks", dependencies=[Depends(require_auth)])
 def tasks(db: Session = Depends(get_db)):
