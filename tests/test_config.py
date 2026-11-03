@@ -18,6 +18,35 @@ class SettingsConfigurationTests(unittest.TestCase):
                 settings = Settings(_env_file=None)
         self.assertEqual(settings.active_api_key, "google-test-key")
 
+    def test_gemini_key_precedence_is_visible_without_exposing_secret(self):
+        with patch.dict(os.environ, {
+            "AI_PROVIDER": "gemini",
+            "GEMINI_API_KEY": "primary-key",
+            "GOOGLE_API_KEY": "fallback-key"
+        }, clear=False):
+            settings = Settings(_env_file=None)
+        self.assertEqual(settings.active_api_key_source, "GEMINI_API_KEY")
+        self.assertEqual(settings.active_api_key, "primary-key")
+
+    def test_google_key_source_is_reported_when_primary_is_empty(self):
+        with patch.dict(os.environ, {
+            "AI_PROVIDER": "gemini",
+            "GEMINI_API_KEY": "",
+            "GOOGLE_API_KEY": "fallback-key"
+        }, clear=False):
+            settings = Settings(_env_file=None)
+        self.assertEqual(settings.active_api_key_source, "GOOGLE_API_KEY")
+
+    def test_no_key_source_is_reported_when_provider_key_is_missing(self):
+        with patch.dict(os.environ, {
+            "AI_PROVIDER": "gemini",
+            "GEMINI_API_KEY": "",
+            "GOOGLE_API_KEY": ""
+        }, clear=False):
+            settings = Settings(_env_file=None)
+        self.assertIsNone(settings.active_api_key_source)
+        self.assertFalse(settings.ai_configured)
+
     def test_legacy_flash_lite_model_is_migrated(self):
         with patch.dict(os.environ, {"AI_PROVIDER": "gemini", "OPENAI_MODEL": "gemini-2.5-flash-lite"}, clear=False):
             settings = Settings(_env_file=None)
