@@ -12,7 +12,7 @@ Create a Free PostgreSQL project. Set Render `DATABASE_URL` to:
 URL-encode special characters in the password. Supabase free projects may pause after inactivity; keep backups.
 
 ## Gemini
-Create a key at https://aistudio.google.com/apikey. Set `AI_PROVIDER=gemini`, `GEMINI_API_KEY`, and `OPENAI_MODEL=gemini-2.5-flash-lite` only if that model is available to your account's free tier. Quotas and terms change. Do not send secrets or sensitive repository data to a free-tier model.
+Create a key at https://aistudio.google.com/apikey. Set `AI_PROVIDER=gemini`, `GEMINI_API_KEY`, and `OPENAI_MODEL=gemini-3.8-flash`. The app uses Google's OpenAI-compatible Gemini endpoint. After deployment, connect to the dashboard and run **Test AI connection**; a configured key is not necessarily a valid key and does not guarantee quota. Check Google's current model availability and quota before changing the model. Do not send secrets or sensitive repository data to a free-tier model.
 
 ## GitHub
 Initially leave `GITHUB_TOKEN` blank and test health/dashboard. Later create a fine-grained token restricted to selected repositories. Begin read-only.
