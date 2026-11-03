@@ -90,7 +90,7 @@ async def chat(body: ChatRequest, db: Session = Depends(get_db)):
                     result=(type(exc).__name__ + ": " + detail)[:700]))
         db.commit()
         if isinstance(exc, RuntimeError) and "not configured" in str(exc).lower():
-            raise HTTPException(status_code=503, detail=detail)
+            raise HTTPException(status_code=503, detail=settings.api_key_env_name + " is not configured for the selected provider.")
         raise HTTPException(status_code=502, detail=detail)
 
 @app.get("/api/tasks", dependencies=[Depends(require_auth)])
