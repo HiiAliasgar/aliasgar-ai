@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from app.config import Settings
+from app.agent import classify_provider_error
 
 
 class SettingsConfigurationTests(unittest.TestCase):
@@ -23,6 +24,22 @@ class SettingsConfigurationTests(unittest.TestCase):
             settings = Settings(_env_file=None)
         self.assertTrue(settings.model_migrated)
         self.assertEqual(settings.model_name, "gemini-3.8-flash")
+
+
+    def test_provider_error_classification_is_actionable(self):
+        cases = [
+            (401, "invalid_api_key"),
+            (403, "permission_denied"),
+            (404, "model_not_found"),
+            (429, "quota_or_rate_limit"),
+        ]
+        for status, expected_code in cases:
+            with self.subTest(status=status):
+                error = type("ProviderError", (Exception,), {"status_code": status})("provider failure")
+                diagnostic = classify_provider_error(error)
+                self.assertEqual(diagnostic.code, expected_code)
+                self.assertTrue(diagnostic.public_message)
+                self.assertEqual(diagnostic.status_code, status)
 
     def test_provider_name_is_normalized(self):
         with patch.dict(os.environ, {"AI_PROVIDER": " Gemini "}, clear=False):
