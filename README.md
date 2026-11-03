@@ -1,59 +1,89 @@
 # Aliasgar AI
 
-A personal engineering agent built with FastAPI, Gemini/OpenAI-compatible tool calling, SQLite/PostgreSQL, GitHub read tools, approval-gated GitHub file changes, LinkedIn draft storage, a web dashboard and an optional WhatsApp webhook.
+A personal engineering-agent project that combines a FastAPI service, LLM tool calling, GitHub read operations, approval-gated repository changes, and a lightweight web dashboard.
 
-## Local setup
+## What it explores
+
+- **LLM integration:** Gemini or OpenAI-compatible provider configuration.
+- **Tool calling:** structured interactions between the model and application tools.
+- **GitHub workflows:** repository inspection is read-only by default; proposed file changes wait for approval and create draft pull requests.
+- **Dashboard:** token-protected interface with provider and model diagnostics.
+- **Optional integration:** WhatsApp webhook support.
+- **Persistence:** SQLite or PostgreSQL configuration.
+
+This is a personal engineering project, not an autonomous agent with unrestricted access to a user's machine or accounts.
+
+## Architecture at a glance
+
+1. FastAPI exposes the application and dashboard APIs.
+2. The configured LLM provider handles model requests.
+3. Application tools perform explicitly scoped operations.
+4. Repository edits are stored as pending approvals.
+5. Approval creates a draft pull request rather than directly changing a default branch.
+
+## Local development
 
 Python 3.11+ is recommended.
 
-1. Create and activate a virtual environment.
-2. Install dependencies with `pip install -r requirements.txt`.
-3. Copy `.env.example` to `.env`.
-4. Set a strong `APP_API_TOKEN` and a Gemini API key.
-5. Start the service with `uvicorn app.main:app --reload`.
-6. Open `http://127.0.0.1:8000`.
+```bash
+git clone https://github.com/HiiAliasgar/aliasgar-ai.git
+cd aliasgar-ai
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+# macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-## Important: two different secrets
+Copy `.env.example` to `.env`, then configure the dashboard token and one model provider.
 
-- `APP_API_TOKEN` is the dashboard login token. Enter this token in the dashboard.
-- `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) is the server-side model key. Store it in Render environment variables. Never paste it into the dashboard or commit it to GitHub.
+### Gemini
 
-The dashboard's `/api/me` response reports whether the server has a configured AI key without exposing the key value.
+```env
+AI_PROVIDER=gemini
+GEMINI_API_KEY=your_key
+OPENAI_MODEL=gemini-3.8-flash
+```
 
-## Gemini configuration
+### OpenAI-compatible provider
 
-- `AI_PROVIDER=gemini`
-- `GEMINI_API_KEY=...` or `GOOGLE_API_KEY=...`
-- `OPENAI_MODEL=gemini-3.8-flash`
+```env
+AI_PROVIDER=openai
+OPENAI_API_KEY=your_key
+OPENAI_MODEL=your_model
+```
 
-The application migrates the old `gemini-2.5-flash-lite` setting to `gemini-3.8-flash` for Gemini deployments. The Gemini API key must have access to the selected model and an active quota/billing arrangement where required.
+Keep API keys server-side. Never commit `.env` or paste secrets into dashboard fields.
 
-For OpenAI instead, set `AI_PROVIDER=openai`, `OPENAI_API_KEY`, and a valid `OPENAI_MODEL`.
+Start the service:
 
-## Render deployment
+```bash
+uvicorn app.main:app --reload
+```
 
-The Render blueprint is in `render.yaml`. Configure the Gemini key in the service environment as `GEMINI_API_KEY` or `GOOGLE_API_KEY`. The dashboard token is a separate generated value named `APP_API_TOKEN`.
+Open `http://127.0.0.1:8000`.
 
-After deployment, check:
+## Deployment notes
 
-- `/health` for service and AI configuration status. This only confirms that a key is present; it does not prove that the key is valid.
-- `/api/me` (with the dashboard token) for the active provider, model and key-configured flag.
-- Connect to the dashboard and use **Test AI connection**. This sends one short request to the configured model and distinguishes invalid keys (401), permission/model access (403/404), and quota/rate-limit failures (429). The diagnostic never returns the key value.
+A Render blueprint is provided in `render.yaml`. Configure `APP_API_TOKEN` and the selected model-provider key as service environment variables.
 
-Do not share API key values in screenshots or chat. Share only redacted error messages and request IDs when debugging.
+- `/health` reports service and configuration status; key presence does not prove that a key is valid.
+- `/api/me` reports the active provider/model configuration to an authenticated dashboard.
+- Use **Test AI connection** to validate actual model access.
 
-## Safety and permissions
+## Security model
 
-- GitHub repository inspection is read-only by default.
-- Proposed GitHub file changes are stored as pending approvals.
-- Approving a change creates a draft pull request; it does not directly push to the default branch.
-- LinkedIn support is draft-only. Publishing is not implemented.
-- The agent has no arbitrary shell, filesystem, credential or browser access.
+- No arbitrary shell execution.
+- No unrestricted filesystem or credential access.
+- GitHub inspection is read-only by default.
+- File changes require an approval step and produce a draft pull request.
+- LinkedIn functionality stores drafts; it does not publish posts.
 
 ## Tests
-
-Run configuration tests with:
 
 ```bash
 python -m unittest discover -s tests -v
 ```
+
+## Repository
+
+[View source code](https://github.com/HiiAliasgar/aliasgar-ai)
