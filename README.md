@@ -36,8 +36,9 @@ The Render blueprint is in `render.yaml`. Configure the Gemini key in the servic
 
 After deployment, check:
 
-- `/health` for service and AI configuration status.
+- `/health` for service and AI configuration status. This only confirms that a key is present; it does not prove that the key is valid.
 - `/api/me` (with the dashboard token) for the active provider, model and key-configured flag.
+- Connect to the dashboard and use **Test AI connection**. This sends one short request to the configured model and distinguishes invalid keys (401), permission/model access (403/404), and quota/rate-limit failures (429). The diagnostic never returns the key value.
 
 Do not share API key values in screenshots or chat. Share only redacted error messages and request IDs when debugging.
 
