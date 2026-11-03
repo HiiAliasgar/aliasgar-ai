@@ -1,5 +1,5 @@
 import json
-from openai import OpenAI
+from openai import AsyncOpenAI
 from .config import settings
 from .db import SessionLocal, Approval, Draft
 from . import github_service
@@ -52,45 +52,72 @@ async def execute_tool(name, args):
     raise ValueError(f"Unknown tool: {name}")
 
 async def ask_agent(prompt: str, history=None):
-    if settings.ai_provider.lower() == "gemini":
-        if not settings.gemini_api_key:
-            raise RuntimeError("GEMINI_API_KEY is not configured. Create a key in Google AI Studio.")
-        client = OpenAI(api_key=settings.gemini_api_key, base_url="https://generativelanguage.googleapis.com/v1beta/openai/")
-    else:
-        if not settings.openai_api_key:
-            raise RuntimeError("OPENAI_API_KEY is not configured. Add it to environment.")
-        client = OpenAI(api_key=settings.openai_api_key)
+    provider = settings.normalized_ai_provider
+    if provider not in {"gemini", "openai"}:
+        raise RuntimeError("AI_PROVIDER must be either 'gemini' or 'openai'.")
+
+    api_key = settings.active_api_key
+    if not api_key:
+        raise RuntimeError(settings.api_key_env_name + " is not configured in the hosting environment.")
+
+    client_options = {"api_key": api_key, "timeout": 45.0, "max_retries": 2}
+    if provider == "gemini":
+        client_options["base_url"] = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
+    client = AsyncOpenAI(**client_options)
     input_items = list(history or [])
-    input_items.append({"role":"user","content":prompt})
-    if settings.ai_provider.lower() == "gemini":
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        messages.extend(input_items)
-        chat_tools = [{"type":"function","function":{"name":t["name"],"description":t["description"],"parameters":t["parameters"]}} for t in TOOLS]
+    input_items.append({"role": "user", "content": prompt})
+
+    try:
+        if provider == "gemini":
+            messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+            messages.extend(input_items)
+            chat_tools = [
+                {"type": "function", "function": {
+                    "name": tool["name"],
+                    "description": tool["description"],
+                    "parameters": tool["parameters"]
+                }}
+                for tool in TOOLS
+            ]
+            for _ in range(settings.openai_max_tool_rounds):
+                response = await client.chat.completions.create(
+                    model=settings.model_name,
+                    messages=messages,
+                    tools=chat_tools,
+                    tool_choice="auto"
+                )
+                choice = response.choices[0].message
+                if not choice.tool_calls:
+                    return choice.content or "No text response was returned."
+                messages.append(choice.model_dump(exclude_none=True))
+                for call in choice.tool_calls:
+                    try:
+                        result = await execute_tool(call.function.name, json.loads(call.function.arguments))
+                        output = json.dumps(result, ensure_ascii=False)
+                    except Exception as exc:
+                        output = json.dumps({"error": type(exc).__name__, "message": str(exc)[:500]}, ensure_ascii=False)
+                    messages.append({"role": "tool", "tool_call_id": call.id, "content": output})
+            return "Reached the tool-call limit. Narrow the task and try again."
+
         for _ in range(settings.openai_max_tool_rounds):
-            response = client.chat.completions.create(model=settings.openai_model, messages=messages, tools=chat_tools, tool_choice="auto")
-            choice = response.choices[0].message
-            if not choice.tool_calls:
-                return choice.content or "No text response was returned."
-            messages.append(choice.model_dump(exclude_none=True))
-            for call in choice.tool_calls:
+            response = await client.responses.create(
+                model=settings.model_name,
+                instructions=SYSTEM_PROMPT,
+                tools=TOOLS,
+                input=input_items
+            )
+            input_items.extend(response.output)
+            calls = [item for item in response.output if getattr(item, "type", None) == "function_call"]
+            if not calls:
+                return response.output_text or "No text response was returned."
+            for call in calls:
                 try:
-                    result = await execute_tool(call.function.name, json.loads(call.function.arguments))
+                    result = await execute_tool(call.name, json.loads(call.arguments))
                     output = json.dumps(result, ensure_ascii=False)
                 except Exception as exc:
-                    output = json.dumps({"error": str(exc)})
-                messages.append({"role":"tool","tool_call_id":call.id,"content":output})
+                    output = json.dumps({"error": type(exc).__name__, "message": str(exc)[:500]}, ensure_ascii=False)
+                input_items.append({"type": "function_call_output", "call_id": call.call_id, "output": output})
         return "Reached the tool-call limit. Narrow the task and try again."
-    for _ in range(settings.openai_max_tool_rounds):
-        response = client.responses.create(model=settings.openai_model, instructions=SYSTEM_PROMPT, tools=TOOLS, input=input_items)
-        input_items.extend(response.output)
-        calls = [x for x in response.output if getattr(x, "type", None) == "function_call"]
-        if not calls:
-            return response.output_text or "No text response was returned."
-        for call in calls:
-            try:
-                result = await execute_tool(call.name, json.loads(call.arguments))
-                output = json.dumps(result, ensure_ascii=False)
-            except Exception as exc:
-                output = json.dumps({"error":str(exc)})
-            input_items.append({"type":"function_call_output","call_id":call.call_id,"output":output})
-    return "Reached the tool-call limit. Narrow the task and try again."
+    finally:
+        await client.close()

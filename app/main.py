@@ -1,4 +1,4 @@
-import json, hmac
+import json, hmac, logging
 from fastapi import FastAPI, Depends, HTTPException, Request, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -11,7 +11,9 @@ from .agent import ask_agent
 from .github_service import create_file_pr
 from .whatsapp import verify_signature, extract_messages, send_whatsapp_text
 
-app = FastAPI(title=settings.app_name, version="0.1.0")
+logger = logging.getLogger("aliasgar_ai")
+
+app = FastAPI(title=settings.app_name, version="0.2.0")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 @app.on_event("startup")
@@ -24,16 +26,21 @@ def dashboard():
 
 @app.get("/health")
 def health():
-    return {"status":"ok","app":settings.app_name}
+    return {"status": "ok", "app": settings.app_name, "ai_provider": settings.normalized_ai_provider,
+            "ai_configured": settings.ai_configured, "model": settings.model_name}
 
 @app.get("/api/me", dependencies=[Depends(require_auth)])
 def me():
-    return {"name":"Aliasgar AI","owner":"Aliasgar Lohawala","model":settings.openai_model,"ai_provider":settings.ai_provider,
-            "github_configured":bool(settings.github_token),
-            "whatsapp_configured":bool(settings.whatsapp_access_token and settings.whatsapp_phone_number_id),
-            "openai_configured":bool(settings.openai_api_key),
-            "ai_configured":bool(settings.gemini_api_key if settings.ai_provider == "gemini" else settings.openai_api_key),
-            "linkedin_mode":"draft_only"}
+    return {
+        "name": "Aliasgar AI", "owner": "Aliasgar Lohawala",
+        "model": settings.model_name, "configured_model": settings.openai_model,
+        "model_migrated": settings.model_migrated,
+        "ai_provider": settings.normalized_ai_provider, "ai_key_env": settings.api_key_env_name,
+        "github_configured": bool(settings.github_token),
+        "whatsapp_configured": bool(settings.whatsapp_access_token and settings.whatsapp_phone_number_id),
+        "openai_configured": bool(settings.openai_api_key),
+        "ai_configured": settings.ai_configured, "linkedin_mode": "draft_only"
+    }
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=12000)
@@ -51,8 +58,14 @@ async def chat(body: ChatRequest, db: Session = Depends(get_db)):
         db.add(task); db.add(Message(channel=body.channel,conversation_key=key,role="assistant",content=answer)); db.commit()
         return {"task_id":task.id,"status":"completed","reply":answer}
     except Exception as exc:
-        db.add(Task(channel=body.channel,user_ref=key,prompt=body.message,status="failed",result=str(exc))); db.commit()
-        raise HTTPException(500, str(exc))
+        logger.exception("AI provider request failed")
+        db.add(Task(channel=body.channel, user_ref=key, prompt=body.message, status="failed",
+                    result=(type(exc).__name__ + ": " + str(exc))[:700]))
+        db.commit()
+        if isinstance(exc, RuntimeError) and "not configured" in str(exc).lower():
+            raise HTTPException(status_code=503, detail=str(exc))
+        raise HTTPException(status_code=502,
+            detail="AI provider request failed. Check the server-side API key, model access and quota in the hosting environment.")
 
 @app.get("/api/tasks", dependencies=[Depends(require_auth)])
 def tasks(db: Session = Depends(get_db)):
