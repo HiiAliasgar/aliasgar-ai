@@ -45,6 +45,17 @@ class Settings(BaseSettings):
         return "a valid AI provider configuration"
 
     @property
+    def active_api_key_source(self) -> str | None:
+        if self.normalized_ai_provider == "gemini":
+            if self.gemini_api_key.strip():
+                return "GEMINI_API_KEY"
+            if self.google_api_key.strip():
+                return "GOOGLE_API_KEY"
+        if self.normalized_ai_provider == "openai" and self.openai_api_key.strip():
+            return "OPENAI_API_KEY"
+        return None
+
+    @property
     def active_api_key(self) -> str:
         if self.normalized_ai_provider == "gemini":
             return self.gemini_api_key.strip() or self.google_api_key.strip()
