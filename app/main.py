@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import init_db, get_db, Task, Approval, Draft, Message
 from .security import require_auth
-from .agent import ask_agent
+from .agent import ask_agent, check_provider_connection, ProviderCheckError
 from .github_service import create_file_pr
 from .whatsapp import verify_signature, extract_messages, send_whatsapp_text
 
@@ -28,6 +28,18 @@ def dashboard():
 def health():
     return {"status": "ok", "app": settings.app_name, "ai_provider": settings.normalized_ai_provider,
             "ai_configured": settings.ai_configured, "model": settings.model_name}
+
+@app.post("/api/ai/check", dependencies=[Depends(require_auth)])
+async def ai_check():
+    """Make a minimal live provider request without exposing credentials."""
+    try:
+        return await check_provider_connection()
+    except ProviderCheckError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.public_message}
+        )
+
 
 @app.get("/api/me", dependencies=[Depends(require_auth)])
 def me():
