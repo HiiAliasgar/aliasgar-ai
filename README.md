@@ -18,7 +18,7 @@ Python 3.11+ is recommended.
 - `APP_API_TOKEN` is the dashboard login token. Enter this token in the dashboard.
 - `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) is the server-side model key. Store it in Render environment variables. Never paste it into the dashboard or commit it to GitHub.
 
-The dashboard's `/api/me` response reports whether the server has a configured AI key without exposing the key value.
+The dashboard's `/api/me` response reports whether the server has a configured AI key and which environment-variable name is selected, without exposing the key value. If both Gemini variables contain values, `GEMINI_API_KEY` takes precedence over `GOOGLE_API_KEY`; remove or replace a stale value in Render if the wrong one is selected.
 
 ## Gemini configuration
 
@@ -37,7 +37,10 @@ The Render blueprint is in `render.yaml`. Configure the Gemini key in the servic
 After deployment, check:
 
 - `/health` for service and AI configuration status.
-- `/api/me` (with the dashboard token) for the active provider, model and key-configured flag.
+- `/api/me` (with the dashboard token) for the active provider, model, whether a key is configured, and the exact environment-variable name selected.
+- Send a short test prompt from the dashboard. Provider errors are classified as credential (401), permission (403), model/endpoint (404), quota/rate limit (429), timeout, or connectivity failures. The response never includes the secret value.
+
+Remember: `APP_API_TOKEN` logs you into the dashboard. `GEMINI_API_KEY` / `GOOGLE_API_KEY` authenticates model requests. They are different credentials.
 
 Do not share API key values in screenshots or chat. Share only redacted error messages and request IDs when debugging.
 
