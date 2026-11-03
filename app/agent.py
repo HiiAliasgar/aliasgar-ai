@@ -1,5 +1,5 @@
 import json
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, APIConnectionError
 from .config import settings
 from .db import SessionLocal, Approval, Draft
 from . import github_service
@@ -50,6 +50,63 @@ async def execute_tool(name, args):
         finally:
             db.close()
     raise ValueError(f"Unknown tool: {name}")
+
+
+class ProviderCheckError(Exception):
+    def __init__(self, code: str, message: str, status_code: int = 502):
+        super().__init__(message)
+        self.code = code
+        self.public_message = message
+        self.status_code = status_code
+
+
+def classify_provider_error(error: Exception) -> ProviderCheckError:
+    status = getattr(error, "status_code", None)
+    if status == 401:
+        return ProviderCheckError("invalid_api_key", "The provider rejected the API key (HTTP 401). Check that the server has the correct Gemini API key, with no extra spaces, and rotate it if it was exposed.", 401)
+    if status == 403:
+        return ProviderCheckError("permission_denied", "The API key was recognized but access was denied. Check that the Gemini API is enabled for the key/project and that the project is allowed to use this model.", 403)
+    if status == 404:
+        return ProviderCheckError("model_not_found", "The configured model was not found for this provider endpoint. Check AI_PROVIDER and OPENAI_MODEL.", 404)
+    if status == 429:
+        return ProviderCheckError("quota_or_rate_limit", "The provider rate limit or quota was reached. Check the AI Studio project quota and billing/usage limits.", 429)
+    if isinstance(error, APIConnectionError):
+        return ProviderCheckError("provider_connection_error", "Could not connect to the AI provider. Check outbound network access and provider availability.", 502)
+    return ProviderCheckError("provider_request_failed", "The provider rejected the test request. Check model compatibility and the server logs for the request ID.", 502)
+
+
+async def check_provider_connection() -> dict:
+    provider = settings.normalized_ai_provider
+    if provider not in {"gemini", "openai"}:
+        raise ProviderCheckError("invalid_provider", "AI_PROVIDER must be either 'gemini' or 'openai'.", 503)
+    api_key = settings.active_api_key
+    if not api_key:
+        raise ProviderCheckError("missing_api_key", settings.api_key_env_name + " is not configured in the hosting environment.", 503)
+
+    client_options = {"api_key": api_key, "timeout": 20.0, "max_retries": 0}
+    if provider == "gemini":
+        client_options["base_url"] = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    client = AsyncOpenAI(**client_options)
+    try:
+        response = await client.chat.completions.create(
+            model=settings.model_name,
+            messages=[{"role": "user", "content": "Reply with OK."}],
+            max_tokens=8
+        )
+        if not response.choices:
+            raise ProviderCheckError("empty_provider_response", "The provider returned no completion choices.", 502)
+        return {
+            "ok": True,
+            "provider": provider,
+            "model": settings.model_name,
+            "message": "The API key was accepted and the configured model returned a response."
+        }
+    except ProviderCheckError:
+        raise
+    except Exception as exc:
+        raise classify_provider_error(exc) from exc
+    finally:
+        await client.close()
 
 async def ask_agent(prompt: str, history=None):
     provider = settings.normalized_ai_provider
