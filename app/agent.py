@@ -23,6 +23,22 @@ TOOLS = [
  {"type":"function","name":"save_linkedin_draft","description":"Save a LinkedIn post draft for owner review. Does not publish.","parameters":{"type":"object","properties":{"content":{"type":"string"}},"required":["content"],"additionalProperties":False},"strict":True}
 ]
 
+def normalize_repository_path(path: str) -> str:
+    """Normalize and reject absolute or parent-traversal repository paths."""
+    if not isinstance(path, str):
+        raise ValueError("Invalid repository file path.")
+    normalized = path.replace(chr(92), "/").strip()
+    if (
+        not normalized
+        or len(normalized) > 500
+        or normalized.startswith("/")
+        or any(part == ".." for part in normalized.split("/"))
+        or any(ord(char) < 32 for char in normalized)
+    ):
+        raise ValueError("Invalid repository file path.")
+    return normalized
+
+
 async def execute_tool(name, args):
     if name == "github_list_repositories":
         return await github_service.list_repositories(args.get("username"))
@@ -31,9 +47,8 @@ async def execute_tool(name, args):
     if name == "github_read_file":
         return await github_service.read_file(args["owner"], args["repo"], args["path"])
     if name == "request_github_file_change":
-        path = args["path"].replace("\\\\", "/")
-        if path.startswith("/") or ".." in path.split("/") or not path.strip():
-            raise ValueError("Invalid repository file path.")
+        path = normalize_repository_path(args["path"])
+        args = {**args, "path": path}
         db = SessionLocal()
         try:
             item = Approval(action_type="github_file_pr", payload=json.dumps(args), summary=f"Propose {path} in {args['owner']}/{args['repo']}")
