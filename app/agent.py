@@ -49,7 +49,6 @@ async def execute_tool(name, args):
     if name == "request_github_file_change":
         path = normalize_repository_path(args["path"])
         args = {**args, "path": path}
-            raise ValueError("Invalid repository file path.")
         db = SessionLocal()
         try:
             item = Approval(action_type="github_file_pr", payload=json.dumps(args), summary=f"Propose {path} in {args['owner']}/{args['repo']}")
