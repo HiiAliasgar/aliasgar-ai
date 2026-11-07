@@ -72,7 +72,7 @@ async def chat(body: ChatRequest, db: Session = Depends(get_db)):
     except Exception as exc:
         logger.exception("AI provider request failed")
         db.add(Task(channel=body.channel, user_ref=key, prompt=body.message, status="failed",
-                    result=(type(exc).__name__ + ": " + str(exc))[:700]))
+                    result=type(exc).__name__ + ": provider request failed; see server logs"))
         db.commit()
         if isinstance(exc, RuntimeError) and "not configured" in str(exc).lower():
             raise HTTPException(status_code=503, detail=str(exc))
@@ -100,9 +100,12 @@ async def approve(approval_id: int, db: Session = Depends(get_db)):
         result = await create_file_pr(payload["owner"],payload["repo"],payload["path"],payload["content"],payload["commit_message"],payload["pr_title"],payload["pr_body"])
         item.status="approved_executed"; item.result=json.dumps(result); db.commit()
         return {"status":item.status,"result":result}
-    except Exception as exc:
-        item.status="execution_failed"; item.result=str(exc); db.commit()
-        raise HTTPException(502,str(exc))
+    except Exception:
+        logger.exception("Approval execution failed")
+        item.status = "execution_failed"
+        item.result = "Execution failed; see server logs."
+        db.commit()
+        raise HTTPException(502, "Approval execution failed. Check server logs for details.")
 
 @app.post("/api/approvals/{approval_id}/reject", dependencies=[Depends(require_auth)])
 def reject(approval_id: int, db: Session = Depends(get_db)):
@@ -143,6 +146,7 @@ async def whatsapp_webhook(request: Request, db: Session=Depends(get_db)):
             db.add(Task(channel="whatsapp",user_ref=sender,prompt=prompt,status="completed",result=answer))
             db.add(Message(channel="whatsapp",conversation_key=sender,role="assistant",content=answer)); db.commit()
             await send_whatsapp_text(sender,answer)
-        except Exception as exc:
-            await send_whatsapp_text(sender,"Aliasgar AI error: "+str(exc)[:600])
+        except Exception:
+            logger.exception("WhatsApp message processing failed")
+            await send_whatsapp_text(sender, "Aliasgar AI could not process that message. Please try again later.")
     return {"received":True}
