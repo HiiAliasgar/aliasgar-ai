@@ -3,7 +3,11 @@ import unittest
 from unittest.mock import patch
 
 from app.config import Settings
-from app.agent import classify_provider_error
+from fastapi import HTTPException
+
+from app.agent import classify_provider_error, normalize_repository_path
+from app.config import settings as app_settings
+from app.security import require_auth
 
 
 class SettingsConfigurationTests(unittest.TestCase):
@@ -46,6 +50,36 @@ class SettingsConfigurationTests(unittest.TestCase):
             settings = Settings(_env_file=None)
         self.assertEqual(settings.normalized_ai_provider, "gemini")
 
+
+
+class RepositoryPathSecurityTests(unittest.TestCase):
+    def test_normalizes_windows_separators(self):
+        self.assertEqual(normalize_repository_path("docs\\guide.md"), "docs/guide.md")
+
+    def test_rejects_parent_directory_traversal(self):
+        for path in ("../secrets.txt", "docs/../../secrets.txt", "docs\\..\\secrets.txt"):
+            with self.subTest(path=path):
+                with self.assertRaises(ValueError):
+                    normalize_repository_path(path)
+
+    def test_rejects_absolute_and_empty_paths(self):
+        for path in ("/etc/passwd", "", "   "):
+            with self.subTest(path=path):
+                with self.assertRaises(ValueError):
+                    normalize_repository_path(path)
+
+
+class DashboardAuthenticationTests(unittest.TestCase):
+    def test_production_rejects_short_dashboard_token(self):
+        with patch.object(app_settings, "app_env", "production"), patch.object(app_settings, "app_api_token", "weak"):
+            with self.assertRaises(HTTPException) as raised:
+                require_auth("Bearer weak")
+        self.assertEqual(raised.exception.status_code, 503)
+
+    def test_accepts_strong_production_token(self):
+        token = "x" * 40
+        with patch.object(app_settings, "app_env", "production"), patch.object(app_settings, "app_api_token", token):
+            self.assertTrue(require_auth("Bearer " + token))
 
 if __name__ == "__main__":
     unittest.main()
